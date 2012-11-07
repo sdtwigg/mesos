@@ -807,6 +807,27 @@ void Master::launchTasks(const FrameworkID& frameworkId,
   }
 }
 
+void Master::offerTimeout(const FrameworkID& frameworkId,
+                          const list<OfferID>& offerIds)
+{
+  Framework* framework = getFramework(frameworkId);
+  if (framework != NULL) {
+    for(list<OfferID>::const_iterator offerId = offerIds.begin(); offerId != offerIds.end(); ++offerId) {
+      Offer* offer = getOffer(*offerId);
+      if (offer != NULL) {
+        CHECK(offer->framework_id() == frameworkId);
+        dispatch(allocator, &AllocatorProcess::resourcesUnused,
+                 offer->framework_id(),
+                 offer->slave_id(),
+                 offer->resources(),
+                 Option<Filters>::none());
+        LOG(WARNING) << "Revoked offer for " << offer->framework_id() << " due to timeout";
+        removeOffer(offer, true);
+      }
+    }
+  }
+}
+
 
 void Master::reviveOffers(const FrameworkID& frameworkId)
 {
@@ -1216,6 +1237,7 @@ void Master::offer(const FrameworkID& frameworkId,
     return;
   }
 
+  list<OfferID> sent_offerids;
   // Create an offer for each slave and add it to the message.
   ResourceOffersMessage message;
 
@@ -1258,6 +1280,7 @@ void Master::offer(const FrameworkID& frameworkId,
     // Add the offer *AND* the corresponding slave's PID.
     message.add_offers()->MergeFrom(*offer);
     message.add_pids(slave->pid);
+    sent_offerids.push_back(offer->id());
   }
 
   if (message.offers().size() == 0) {
@@ -1268,6 +1291,11 @@ void Master::offer(const FrameworkID& frameworkId,
             << " offers to framework " << framework->id;
 
   send(framework->pid, message);
+
+  delay(OFFER_TIMEOUT, self(),
+        &Master::offerTimeout,
+      	framework->id,
+        sent_offerids);
 }
 
 

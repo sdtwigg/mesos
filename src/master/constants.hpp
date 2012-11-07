@@ -59,6 +59,7 @@ const uint32_t MAX_COMPLETED_TASKS_PER_FRAMEWORK = 1000;
 
 // Time interval to check for updated watchers list.
 const Duration WHITELIST_WATCH_INTERVAL = Seconds(5.0);
+const Duration OFFER_TIMEOUT = Seconds(1.0);
 
 } // namespace mesos {
 } // namespace internal {

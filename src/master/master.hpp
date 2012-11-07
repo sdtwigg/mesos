@@ -90,6 +90,8 @@ public:
                    const OfferID& offerId,
                    const std::vector<TaskInfo>& tasks,
                    const Filters& filters);
+  void offerTimeout(const FrameworkID& frameworkId,
+                    const std::list<OfferID>& offerIds);
   void reviveOffers(const FrameworkID& frameworkId);
   void killTask(const FrameworkID& frameworkId, const TaskID& taskId);
   void schedulerMessage(const SlaveID& slaveId,
