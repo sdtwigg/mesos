@@ -33,6 +33,8 @@
 #include <stout/duration.hpp>
 #include <stout/stopwatch.hpp>
 
+#include "common/lock.hpp"
+
 #include <process/defer.hpp>
 #include <process/delay.hpp>
 #include <process/id.hpp>
@@ -42,6 +44,7 @@
 #include <deque>
 
 using namespace mesos;
+using namespace mesos::internal;
 using namespace process;
 
 using process::wait;
@@ -67,17 +70,80 @@ struct Task
 
   Task(const int taskID_) : 
     taskID(taskID_) {lifetime.start();}
-
   ~Task() {}
+};
+
+class TaskGenerator : public Process<TaskGenerator> 
+{
+public:
+  TaskGenerator()
+    : ProcessBase(ID::generate("taskgenerator")),
+      tasksGenned(0)
+    {
+      pthread_mutexattr_t attr;
+      pthread_mutexattr_init(&attr);
+      pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE);
+      pthread_mutex_init(&queueMutex, &attr);
+      pthread_mutexattr_destroy(&attr);
+    }
+
+  ~TaskGenerator()
+  {
+    pthread_mutex_destroy(&queueMutex);
+  }
+
+  bool hasTasks()
+  {
+    Lock lock(&queueMutex);
+    return !(taskQueue.empty());
+  }
+
+  void genTask()
+  {
+    if(taskQueue.size() < 20)
+      // Technically should lock when accessing queue but do not care if slightly off
+    {
+      cout << "Generating task " << tasksGenned << endl;
+      pushTaskBack(Task(tasksGenned++));
+    }
+
+    delay(Seconds(1.0), self(), &TaskGenerator::genTask);
+  }
+
+  Task popTask()
+  {
+    Lock lock(&queueMutex);
+    Task task = taskQueue.front();
+    taskQueue.pop_front();
+    return task;
+  }
+
+  void pushTaskFront(Task task)
+  {
+    Lock lock(&queueMutex);
+    taskQueue.push_front(task);
+  }
+
+  void pushTaskBack(Task task)
+  {
+    Lock lock(&queueMutex);
+    taskQueue.push_back(task);
+  }
+  
+private:
+  deque<Task> taskQueue;
+  pthread_mutex_t queueMutex;
+
+  int tasksGenned;
 };
 
 class ModelScheduler : public Scheduler
 {
 public:
-  ModelScheduler(const ExecutorInfo& _executor)
+  ModelScheduler(const ExecutorInfo& _executor, TaskGenerator& _generator)
     : executor(_executor),
-      tasksLaunched(0),
-      tasksGenned(0) {genTask();}
+      generator(_generator)
+    {}
 
   virtual ~ModelScheduler() {}
 
@@ -95,9 +161,9 @@ public:
   virtual void resourceOffers(SchedulerDriver* driver,
                               const vector<Offer>& offers)
   {
-    cout << "." << flush;
+    cout << "Offer Received" << endl;
     // if no tasks available, return offers
-    if (taskQueue.empty()) {
+    if (!generator.hasTasks()) {
       for (size_t i = 0; i < offers.size(); i++) {
         const Offer& offer = offers[i];
         driver->declineOffer(offer.id());
@@ -108,7 +174,7 @@ public:
 
     sleep(3);
     for (size_t i = 0; i < offers.size(); i++) {
-      if (taskQueue.empty()) break;
+      if (!generator.hasTasks()) break;
 
       const Offer& offer = offers[i];
 
@@ -132,8 +198,7 @@ public:
       // Launch tasks (only one per offer).
       vector<TaskInfo> tasks;
       if (cpus >= CPUS_PER_TASK && mem >= MEM_PER_TASK) {
-        Task task = taskQueue.front();
-        taskQueue.pop_front();
+        Task task = generator.popTask();
         tasksInFlight.push_back(task);
         int taskId = task.taskID;
 
@@ -195,7 +260,7 @@ public:
       } 
       else // now we know that the task is lost
       {
-        taskQueue.push_front(task);
+        generator.pushTaskFront(task);
         cout << "Task " << taskId << " was placed back on the queue" << endl;
       }
 
@@ -216,22 +281,10 @@ public:
 
   virtual void error(SchedulerDriver* driver, const string& message) {}
 
-  void genTask()
-  {
-    taskQueue.push_back(Task(tasksGenned++));
-    if(tasksGenned < 20)
-    {
-      delay(Seconds(1.0), self(),
-            &ModelScheduler::genTask);
-    }
-  }
-
 private:
   const ExecutorInfo executor;
+  TaskGenerator& generator;
   string uri;
-  int tasksLaunched;
-  int tasksGenned;
-  deque<Task> taskQueue;
   list<Task> tasksInFlight;
 };
 
@@ -253,13 +306,18 @@ int main(int argc, char** argv)
   executor.mutable_executor_id()->set_value("default");
   executor.mutable_command()->set_value(uri);
 
-  ModelScheduler scheduler(executor);
+  TaskGenerator generator;
+  ModelScheduler scheduler(executor, generator);
 
   FrameworkInfo framework;
   framework.set_user(""); // Have Mesos fill in the current user.
   framework.set_name("Model Framework (C++)");
 
   MesosSchedulerDriver driver(&scheduler, framework, argv[1]);
+
+  // Startup the generator (MassSchedulerDriver already initialized libprocess)
+  spawn(generator);
+  dispatch(generator.self(), &TaskGenerator::genTask);
 
   return driver.run() == DRIVER_STOPPED ? 0 : 1;
 }
