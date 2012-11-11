@@ -251,7 +251,6 @@ public:
         cout << "Task " << taskId << " was a phantom." << endl;
         return;
       }
-      assert(i != tasksInFlight.end());
       Task task = *i;
       tasksInFlight.erase(i);
 
