@@ -173,9 +173,7 @@ public:
     }
 
     sleep(3);
-    for (size_t i = 0; i < offers.size(); i++) {
-      if (!generator.hasTasks()) break;
-
+    for (size_t i = 0; (i < offers.size()) && generator.hasTasks(); i++) {
       const Offer& offer = offers[i];
 
       // Lookup resources we care about.
@@ -197,7 +195,7 @@ public:
 
       // Launch tasks (only one per offer).
       vector<TaskInfo> tasks;
-      if (cpus >= CPUS_PER_TASK && mem >= MEM_PER_TASK) {
+      while (cpus >= CPUS_PER_TASK && mem >= MEM_PER_TASK && generator.hasTasks()) {
         Task task = generator.popTask();
         tasksInFlight.push_back(task);
         int taskId = task.taskID;
@@ -248,7 +246,11 @@ public:
       {
         if (i->taskID == taskId) break;
       }
-
+      if(i == tasksInFlight.end())
+      {
+        cout << "Task " << taskId << " was a phantom." << endl;
+        return;
+      }
       assert(i != tasksInFlight.end());
       Task task = *i;
       tasksInFlight.erase(i);
