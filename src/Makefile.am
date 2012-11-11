@@ -705,6 +705,11 @@ indecisive_framework_SOURCES = examples/indecisive_framework.cpp
 indecisive_framework_CPPFLAGS = $(MESOS_CPPFLAGS)
 indecisive_framework_LDADD = libmesos.la
 
+check_PROGRAMS += model-framework
+model_framework_SOURCES = examples/model_framework.cpp
+model_framework_CPPFLAGS = $(MESOS_CPPFLAGS)
+model_framework_LDADD = libmesos.la
+
 check_PROGRAMS += test-framework
 test_framework_SOURCES = examples/test_framework.cpp
 test_framework_CPPFLAGS = $(MESOS_CPPFLAGS)

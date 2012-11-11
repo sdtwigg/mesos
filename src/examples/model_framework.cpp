@@ -20,15 +20,31 @@
 
 #include <iostream>
 #include <string>
+#include <sstream>
 
 #include <boost/lexical_cast.hpp>
 
 #include <mesos/scheduler.hpp>
 
 #include <stout/os.hpp>
+#include <stout/path.hpp>
+#include <stout/utils.hpp>
+#include <stout/uuid.hpp>
+#include <stout/duration.hpp>
 #include <stout/stopwatch.hpp>
 
+#include <process/defer.hpp>
+#include <process/delay.hpp>
+#include <process/id.hpp>
+#include <process/run.hpp>
+
+#include <list>
+#include <deque>
+
 using namespace mesos;
+using namespace process;
+
+using process::wait;
 
 using boost::lexical_cast;
 
@@ -38,18 +54,32 @@ using std::endl;
 using std::flush;
 using std::string;
 using std::vector;
+using std::list;
+using std::deque;
 
 const int32_t CPUS_PER_TASK = 1;
 const int32_t MEM_PER_TASK = 32;
 
-class LongLivedScheduler : public Scheduler
+struct Task
+{
+  int taskID;
+  Stopwatch lifetime;
+
+  Task(const int taskID_) : 
+    taskID(taskID_) {lifetime.start();}
+
+  ~Task() {}
+};
+
+class ModelScheduler : public Scheduler
 {
 public:
-  LongLivedScheduler(const ExecutorInfo& _executor)
+  ModelScheduler(const ExecutorInfo& _executor)
     : executor(_executor),
-      tasksLaunched(0) {curTaskTime.start();}
+      tasksLaunched(0),
+      tasksGenned(0) {genTask();}
 
-  virtual ~LongLivedScheduler() {}
+  virtual ~ModelScheduler() {}
 
   virtual void registered(SchedulerDriver*,
                           const FrameworkID&,
@@ -65,9 +95,21 @@ public:
   virtual void resourceOffers(SchedulerDriver* driver,
                               const vector<Offer>& offers)
   {
-    sleep(3);
     cout << "." << flush;
+    // if no tasks available, return offers
+    if (taskQueue.empty()) {
+      for (size_t i = 0; i < offers.size(); i++) {
+        const Offer& offer = offers[i];
+        driver->declineOffer(offer.id());
+      }
+      cout << "No tasks launched because none were available" << endl;
+      return;
+    }
+
+    sleep(3);
     for (size_t i = 0; i < offers.size(); i++) {
+      if (taskQueue.empty()) break;
+
       const Offer& offer = offers[i];
 
       // Lookup resources we care about.
@@ -90,30 +132,33 @@ public:
       // Launch tasks (only one per offer).
       vector<TaskInfo> tasks;
       if (cpus >= CPUS_PER_TASK && mem >= MEM_PER_TASK) {
-        int taskId = tasksLaunched++;
+        Task task = taskQueue.front();
+        taskQueue.pop_front();
+        tasksInFlight.push_back(task);
+        int taskId = task.taskID;
 
         cout << "Starting task " << taskId << " on "
              << offer.hostname() << endl;
 
-        TaskInfo task;
-        task.set_name("Task " + lexical_cast<string>(taskId));
-        task.mutable_task_id()->set_value(lexical_cast<string>(taskId));
-        task.mutable_slave_id()->MergeFrom(offer.slave_id());
-        task.mutable_executor()->MergeFrom(executor);
+        TaskInfo taskInfo;
+        taskInfo.set_name("Task " + lexical_cast<string>(taskId));
+        taskInfo.mutable_task_id()->set_value(lexical_cast<string>(taskId));
+        taskInfo.mutable_slave_id()->MergeFrom(offer.slave_id());
+        taskInfo.mutable_executor()->MergeFrom(executor);
 
         Resource* resource;
 
-        resource = task.add_resources();
+        resource = taskInfo.add_resources();
         resource->set_name("cpus");
         resource->set_type(Value::SCALAR);
         resource->mutable_scalar()->set_value(CPUS_PER_TASK);
 
-        resource = task.add_resources();
+        resource = taskInfo.add_resources();
         resource->set_name("mem");
         resource->set_type(Value::SCALAR);
         resource->mutable_scalar()->set_value(MEM_PER_TASK);
 
-        tasks.push_back(task);
+        tasks.push_back(taskInfo);
 
         cpus -= CPUS_PER_TASK;
         mem -= MEM_PER_TASK;
@@ -130,11 +175,30 @@ public:
   {
     int taskId = lexical_cast<int>(status.task_id().value());
     cout << "Task " << taskId << " is in state " << status.state() << endl;
-    if (status.state() == TASK_FINISHED)
+
+    if (status.state() == TASK_FINISHED || status.state() == TASK_LOST)
     {
-      curTaskTime.stop();
-      cout << "Task " << taskId << " finished in " << curTaskTime.elapsed() << endl;
-      curTaskTime.start();
+      list<Task>::iterator i;
+      for(i = tasksInFlight.begin(); i != tasksInFlight.end(); ++i)
+      {
+        if (i->taskID == taskId) break;
+      }
+
+      assert(i != tasksInFlight.end());
+      Task task = *i;
+      tasksInFlight.erase(i);
+
+      if(status.state() == TASK_FINISHED)
+      {
+        task.lifetime.stop();
+        cout << "Task " << taskId << " finished at time " << task.lifetime.elapsed() << endl;
+      } 
+      else // now we know that the task is lost
+      {
+        taskQueue.push_front(task);
+        cout << "Task " << taskId << " was placed back on the queue" << endl;
+      }
+
     }
   }
 
@@ -152,13 +216,24 @@ public:
 
   virtual void error(SchedulerDriver* driver, const string& message) {}
 
+  void genTask()
+  {
+    taskQueue.push_back(Task(tasksGenned++));
+    if(tasksGenned < 20)
+    {
+      delay(Seconds(1.0), self(),
+            &ModelScheduler::genTask);
+    }
+  }
+
 private:
   const ExecutorInfo executor;
   string uri;
   int tasksLaunched;
-  Stopwatch curTaskTime;
+  int tasksGenned;
+  deque<Task> taskQueue;
+  list<Task> tasksInFlight;
 };
-
 
 int main(int argc, char** argv)
 {
@@ -178,11 +253,11 @@ int main(int argc, char** argv)
   executor.mutable_executor_id()->set_value("default");
   executor.mutable_command()->set_value(uri);
 
-  LongLivedScheduler scheduler(executor);
+  ModelScheduler scheduler(executor);
 
   FrameworkInfo framework;
   framework.set_user(""); // Have Mesos fill in the current user.
-  framework.set_name("Long Lived Framework (C++)");
+  framework.set_name("Model Framework (C++)");
 
   MesosSchedulerDriver driver(&scheduler, framework, argv[1]);
 

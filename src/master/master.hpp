@@ -388,7 +388,8 @@ struct Framework
       pid(_pid),
       active(true),
       registeredTime(time),
-      reregisteredTime(time) {}
+      reregisteredTime(time),
+      offerTimeout(INITIAL_OFFER_TIMEOUT) {}
 
   ~Framework() {}
 
@@ -467,6 +468,11 @@ struct Framework
     }
   }
 
+  Duration updateTimeoutTime()
+  {
+    offerTimeout = Milliseconds(offerTimeout.ms() * 2);
+    return offerTimeout;
+  }
 
   const FrameworkID id; // TODO(benh): Store this in 'info.
   const FrameworkInfo info;
@@ -487,6 +493,8 @@ struct Framework
   Resources resources; // Total resources (tasks + offers + executors).
 
   hashmap<SlaveID, hashmap<ExecutorID, ExecutorInfo> > executors;
+
+  Duration offerTimeout;
 };
 
 } // namespace master {

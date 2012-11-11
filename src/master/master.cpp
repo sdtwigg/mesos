@@ -812,6 +812,7 @@ void Master::offerTimeout(const FrameworkID& frameworkId,
 {
   Framework* framework = getFramework(frameworkId);
   if (framework != NULL) {
+    bool anyRevoked = false;
     for(list<OfferID>::const_iterator offerId = offerIds.begin(); offerId != offerIds.end(); ++offerId) {
       Offer* offer = getOffer(*offerId);
       if (offer != NULL) {
@@ -821,10 +822,12 @@ void Master::offerTimeout(const FrameworkID& frameworkId,
                  offer->slave_id(),
                  offer->resources(),
                  Option<Filters>::none());
-        LOG(WARNING) << "Revoked offer for " << offer->framework_id() << " due to timeout";
+        LOG(WARNING) << "Revoked offer for " << offer->framework_id() << " due to timeout after " << framework->offerTimeout.ms() << " ms";
         removeOffer(offer, true);
+        anyRevoked = true;
       }
     }
+    if(anyRevoked) framework->updateTimeoutTime();
   }
 }
 
@@ -1292,7 +1295,7 @@ void Master::offer(const FrameworkID& frameworkId,
 
   send(framework->pid, message);
 
-  delay(OFFER_TIMEOUT, self(),
+  delay(framework->offerTimeout, self(),
         &Master::offerTimeout,
       	framework->id,
         sent_offerids);
