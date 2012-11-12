@@ -65,8 +65,10 @@ public:
   virtual void resourceOffers(SchedulerDriver* driver,
                               const vector<Offer>& offers)
   {
-    sleep(3);
     cout << "." << flush;
+    curTaskTime.stop();
+    cout << "offer finished at time " << curTaskTime.elapsed() << endl;
+    curTaskTime.start();
     for (size_t i = 0; i < offers.size(); i++) {
       const Offer& offer = offers[i];
 
@@ -130,12 +132,6 @@ public:
   {
     int taskId = lexical_cast<int>(status.task_id().value());
     cout << "Task " << taskId << " is in state " << status.state() << endl;
-    if (status.state() == TASK_FINISHED)
-    {
-      curTaskTime.stop();
-      cout << "Task " << taskId << " finished in " << curTaskTime.elapsed() << endl;
-      curTaskTime.start();
-    }
   }
 
   virtual void frameworkMessage(SchedulerDriver* driver,
