@@ -99,6 +99,9 @@ public:
   void offersRevived(const FrameworkID& frameworkId);
 
 protected:
+  // Allocate any allocatable resources.
+  hashmap<SlaveID, Resources> tallyResources(const hashset<SlaveID>& slaveIds, bool writeLog=false);
+  
   // Callback for doing batch allocations.
   void batch();
 
@@ -522,22 +525,9 @@ void HierarchicalAllocatorProcess<UserSorter, FrameworkSorter>::offersRevived(co
   allocate();
 }
 
-
 template <class UserSorter, class FrameworkSorter>
-void HierarchicalAllocatorProcess<UserSorter, FrameworkSorter>::batch()
+hashmap<SlaveID, Resources> HierarchicalAllocatorProcess<UserSorter, FrameworkSorter>::tallyResources(const hashset<SlaveID>& slaveIds, bool writeLog)
 {
-  CHECK(initialized);
-  checkUtilization();
-  allocate();
-  delay(flags.allocation_interval, self(),
-	&HierarchicalAllocatorProcess<UserSorter, FrameworkSorter>::batch);
-}
-
-template <class UserSorter, class FrameworkSorter>
-void HierarchicalAllocatorProcess<UserSorter, FrameworkSorter>::checkUtilization()
-{
-  hashset<SlaveID> slaveIds = slaves.keys();
-
   // Get out only "available" resources (i.e., resources that are
   // allocatable and above a certain threshold, see below).
   hashmap<SlaveID, Resources> available;
@@ -562,10 +552,32 @@ void HierarchicalAllocatorProcess<UserSorter, FrameworkSorter>::checkUtilization
       Value::Scalar mem = resources.get("mem", none);
 
       if (cpus.value() >= MIN_CPUS && mem.value() > MIN_MEM) {
-        available[slaveId] = resources;
+        if(writeLog) {
+	  VLOG(1) << "Found available resources: " << resources
+	  	  << " on slave " << slaveId;
+        }
+	available[slaveId] = resources;
       }
     }
   }
+
+  return available;
+}
+
+template <class UserSorter, class FrameworkSorter>
+void HierarchicalAllocatorProcess<UserSorter, FrameworkSorter>::batch()
+{
+  CHECK(initialized);
+  checkUtilization();
+  allocate();
+  delay(flags.allocation_interval, self(),
+	&HierarchicalAllocatorProcess<UserSorter, FrameworkSorter>::batch);
+}
+
+template <class UserSorter, class FrameworkSorter>
+void HierarchicalAllocatorProcess<UserSorter, FrameworkSorter>::checkUtilization()
+{
+  hashmap<SlaveID, Resources> available = tallyResources(slaves.keys(), false);
 
   if (available.size() == 0) {
     foreach (const std::string& user, userSorter->sort()) {
@@ -622,36 +634,7 @@ void HierarchicalAllocatorProcess<UserSorter, FrameworkSorter>::allocate(const h
     return;
   }
 
-  // Get out only "available" resources (i.e., resources that are
-  // allocatable and above a certain threshold, see below).
-  hashmap<SlaveID, Resources> available;
-  foreachpair (const SlaveID& slaveId, Resources resources, allocatable) {
-    if (!slaveIds.contains(slaveId)) {
-      continue;
-    }
-
-    if (isWhitelisted(slaveId)) {
-      resources = resources.allocatable(); // Make sure they're allocatable.
-
-      // TODO(benh): For now, only make offers when there is some cpu
-      // and memory left. This is an artifact of the original code that
-      // only offered when there was at least 1 cpu "unit" available,
-      // and without doing this a framework might get offered resources
-      // with only memory available (which it obviously will decline)
-      // and then end up waiting the default Filters::refuse_seconds
-      // (unless the framework set it to something different).
-
-      Value::Scalar none;
-      Value::Scalar cpus = resources.get("cpus", none);
-      Value::Scalar mem = resources.get("mem", none);
-
-      if (cpus.value() >= MIN_CPUS && mem.value() > MIN_MEM) {
-	VLOG(1) << "Found available resources: " << resources
-		<< " on slave " << slaveId;
-	available[slaveId] = resources;
-      }
-    }
-  }
+  hashmap<SlaveID, Resources> available = tallyResources(slaveIds, true);
 
   if (available.size() == 0) {
     VLOG(1) << "No resources available to allocate!";
