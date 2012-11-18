@@ -107,7 +107,7 @@ public:
       pushTaskBack(Task(tasksGenned++));
     }
 
-    delay(Seconds(1.0), self(), &TaskGenerator::genTask);
+    delay(Seconds(2.5), self(), &TaskGenerator::genTask);
   }
 
   Task popTask()
@@ -172,7 +172,8 @@ public:
       return;
     }
 
-    sleep(3);
+    sleep(2);
+
     for (size_t i = 0; (i < offers.size()) && generator.hasTasks(); i++) {
       const Offer& offer = offers[i];
 
@@ -193,7 +194,7 @@ public:
         }
       }
 
-      // Launch tasks (only one per offer).
+      // Launch tasks 
       vector<TaskInfo> tasks;
       while (cpus >= CPUS_PER_TASK && mem >= MEM_PER_TASK && generator.hasTasks()) {
         Task task = generator.popTask();
@@ -239,7 +240,7 @@ public:
     int taskId = lexical_cast<int>(status.task_id().value());
     cout << "Task " << taskId << " is in state " << status.state() << endl;
 
-    if (status.state() == TASK_FINISHED || status.state() == TASK_LOST)
+    if (status.state() == TASK_FINISHED || status.state() == TASK_LOST || status.state() == TASK_KILLED)
     {
       list<Task>::iterator i;
       for(i = tasksInFlight.begin(); i != tasksInFlight.end(); ++i)
@@ -259,7 +260,7 @@ public:
         task.lifetime.stop();
         cout << "Task " << taskId << " finished at time " << task.lifetime.elapsed() << endl;
       } 
-      else // now we know that the task is lost
+      else // now we know that the task is lost or killed
       {
         generator.pushTaskFront(task);
         cout << "Task " << taskId << " was placed back on the queue" << endl;
@@ -298,9 +299,9 @@ int main(int argc, char** argv)
 
   // Find this executable's directory to locate executor.
   string path = os::realpath(dirname(argv[0])).get();
-  string uri = path + "/long-lived-executor";
+  string uri = path + "/forever-executor";
   if (getenv("MESOS_BUILD_DIR")) {
-    uri = string(getenv("MESOS_BUILD_DIR")) + "/src/long-lived-executor";
+    uri = string(getenv("MESOS_BUILD_DIR")) + "/src/forever-executor";
   }
 
   ExecutorInfo executor;

@@ -604,7 +604,7 @@ void Slave::killTask(const FrameworkID& frameworkId,
     update->set_timestamp(Clock::now());
     update->set_uuid(UUID::random().toBytes());
     send(master, message);
-  } else if (!executor->pid) {
+  } else {
     // Remove the task.
     executor->removeTask(taskId);
 
@@ -624,13 +624,15 @@ void Slave::killTask(const FrameworkID& frameworkId,
     update->set_timestamp(Clock::now());
     update->set_uuid(UUID::random().toBytes());
     send(master, message);
-  } else {
-    // Otherwise, send a message to the executor and wait for
+    
+    // Send a message to the executor telling it the task was killed
     // it to send us a status update.
-    KillTaskMessage message;
-    message.mutable_framework_id()->MergeFrom(frameworkId);
-    message.mutable_task_id()->MergeFrom(taskId);
-    send(executor->pid, message);
+    if (executor->pid) {
+      KillTaskMessage message;
+      message.mutable_framework_id()->MergeFrom(frameworkId);
+      message.mutable_task_id()->MergeFrom(taskId);
+      send(executor->pid, message);
+    }
   }
 }
 

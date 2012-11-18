@@ -813,8 +813,8 @@ void Master::offerTimeout(const FrameworkID& frameworkId,
   Framework* framework = getFramework(frameworkId);
   if (framework != NULL) {
     bool anyRevoked = false;
-    for(list<OfferID>::const_iterator offerId = offerIds.begin(); offerId != offerIds.end(); ++offerId) {
-      Offer* offer = getOffer(*offerId);
+    foreach(const OfferID offerId, offerIds) {
+      Offer* offer = getOffer(offerId);
       if (offer != NULL) {
         CHECK(offer->framework_id() == frameworkId);
         dispatch(allocator, &AllocatorProcess::resourcesUnused,
@@ -841,6 +841,31 @@ void Master::reviveOffers(const FrameworkID& frameworkId)
   }
 }
 
+void Master::revokeFramework(const FrameworkID& frameworkId)
+{
+  LOG(INFO) << "Asked to revoke framework " << frameworkId;
+
+  Framework* framework = getFramework(frameworkId);
+  if (framework != NULL) {
+    foreachvalue(Task* task, framework->tasks) {
+      TaskID taskId = task->task_id();
+        // copy unnecessary since not actually adjusting data structure yet
+        // only sending kill messages here
+      Slave* slave = getSlave(task->slave_id());
+      CHECK(slave != NULL);
+
+      LOG(INFO) << "Telling slave " << slave->id << " ("
+                << slave->info.hostname() << ")"
+                << " to revoke task " << taskId
+                << " of framework " << frameworkId;
+
+      KillTaskMessage message;
+      message.mutable_framework_id()->MergeFrom(frameworkId);
+      message.mutable_task_id()->MergeFrom(taskId);
+      send(slave->pid, message);
+    }
+  }
+}
 
 void Master::killTask(const FrameworkID& frameworkId,
                       const TaskID& taskId)

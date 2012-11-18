@@ -102,6 +102,9 @@ protected:
   // Callback for doing batch allocations.
   void batch();
 
+  // Check and call for resource revocation
+  void checkUtilization();
+
   // Allocate any allocatable resources.
   void allocate();
 
@@ -524,11 +527,57 @@ template <class UserSorter, class FrameworkSorter>
 void HierarchicalAllocatorProcess<UserSorter, FrameworkSorter>::batch()
 {
   CHECK(initialized);
+  checkUtilization();
   allocate();
   delay(flags.allocation_interval, self(),
 	&HierarchicalAllocatorProcess<UserSorter, FrameworkSorter>::batch);
 }
 
+template <class UserSorter, class FrameworkSorter>
+void HierarchicalAllocatorProcess<UserSorter, FrameworkSorter>::checkUtilization()
+{
+  hashset<SlaveID> slaveIds = slaves.keys();
+
+  // Get out only "available" resources (i.e., resources that are
+  // allocatable and above a certain threshold, see below).
+  hashmap<SlaveID, Resources> available;
+  foreachpair (const SlaveID& slaveId, Resources resources, allocatable) {
+    if (!slaveIds.contains(slaveId)) {
+      continue;
+    }
+
+    if (isWhitelisted(slaveId)) {
+      resources = resources.allocatable(); // Make sure they're allocatable.
+
+      // TODO(benh): For now, only make offers when there is some cpu
+      // and memory left. This is an artifact of the original code that
+      // only offered when there was at least 1 cpu "unit" available,
+      // and without doing this a framework might get offered resources
+      // with only memory available (which it obviously will decline)
+      // and then end up waiting the default Filters::refuse_seconds
+      // (unless the framework set it to something different).
+
+      Value::Scalar none;
+      Value::Scalar cpus = resources.get("cpus", none);
+      Value::Scalar mem = resources.get("mem", none);
+
+      if (cpus.value() >= MIN_CPUS && mem.value() > MIN_MEM) {
+        available[slaveId] = resources;
+      }
+    }
+  }
+
+  if (available.size() == 0) {
+    foreach (const std::string& user, userSorter->sort()) {
+      foreach (const std::string& frameworkIdValue, sorters[user]->sort()) {
+        FrameworkID frameworkId;
+        frameworkId.set_value(frameworkIdValue);
+
+        dispatch(master, &Master::revokeFramework, frameworkId);
+      }
+    }
+  }
+}
 
 template <class UserSorter, class FrameworkSorter>
 void HierarchicalAllocatorProcess<UserSorter, FrameworkSorter>::allocate()

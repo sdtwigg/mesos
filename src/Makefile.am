@@ -705,6 +705,11 @@ indecisive_framework_SOURCES = examples/indecisive_framework.cpp
 indecisive_framework_CPPFLAGS = $(MESOS_CPPFLAGS)
 indecisive_framework_LDADD = libmesos.la
 
+check_PROGRAMS += forever-executor
+forever_executor_SOURCES = examples/forever_executor.cpp
+forever_executor_CPPFLAGS = $(MESOS_CPPFLAGS)
+forever_executor_LDADD = libmesos.la
+
 check_PROGRAMS += model-framework
 model_framework_SOURCES = examples/model_framework.cpp
 model_framework_CPPFLAGS = $(MESOS_CPPFLAGS)
