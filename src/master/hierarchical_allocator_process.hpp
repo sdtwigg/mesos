@@ -41,6 +41,17 @@ namespace master {
 // Forward declarations.
 class Filter;
 
+// Our struct to keep track
+// of the different resource types
+// for the purposes of resources revocation
+struct FrameworkResources 
+{
+  FrameworkResources() {};
+  Resources activeRes;  // currently used on slave
+  Resources offeredRes;
+  Resources guaranteedRes;
+  Resources revokedRes; // what we told it to lose, overlaps w/ activeRes
+};
 
 // Implements the basic allocator algorithm - first pick
 // a user by some criteria, then pick one of their
@@ -155,6 +166,9 @@ protected:
 
   // Sorter containing all active users.
   UserSorter* userSorter;
+
+  // Map of framework to resource types
+  hashmap<FrameworkID, FrameworkResources> frameworks;
 };
 
 
@@ -228,6 +242,8 @@ void HierarchicalAllocatorProcess<UserSorter, FrameworkSorter>::frameworkAdded(
   sorters[user]->allocated(frameworkId.value(), used);
 
   users[frameworkId] = frameworkInfo.user();
+
+  frameworks[frameworkId] = FrameworkResources();
 
   LOG(INFO) << "Added framework " << frameworkId;
 
