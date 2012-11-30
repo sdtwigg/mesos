@@ -506,10 +506,12 @@ void Master::exited(const UPID& pid)
 
       // Remove the framework's offers.
       foreach (Offer* offer, utils::copy(framework->offers)) {
-        dispatch(allocator, &AllocatorProcess::resourcesRecovered,
+        dispatch(allocator, &AllocatorProcess::resourcesUnused,
                  offer->framework_id(),
                  offer->slave_id(),
-                 Resources(offer->resources()));
+                 Resources(offer->resources()),
+                 Resources(),
+                 Option<Filters>::none());
         removeOffer(offer);
       }
       return;
@@ -667,8 +669,8 @@ void Master::reregisterFramework(const FrameworkInfo& frameworkInfo,
       // replied to the offers but the driver might have dropped
       // those messages since it wasn't connected to the master.
       foreach (Offer* offer, utils::copy(framework->offers)) {
-        dispatch(allocator, &AllocatorProcess::resourcesRecovered,
-		 offer->framework_id(), offer->slave_id(), offer->resources());
+        dispatch(allocator, &AllocatorProcess::resourcesUnused,
+		 offer->framework_id(), offer->slave_id(), offer->resources(), Resources(), Option<Filters>::none());
         removeOffer(offer);
       }
 
@@ -821,6 +823,7 @@ void Master::offerTimeout(const FrameworkID& frameworkId,
                  offer->framework_id(),
                  offer->slave_id(),
                  offer->resources(),
+                 Resources(), // offer revoked so no resources used
                  Option<Filters>::none());
         LOG(WARNING) << "Revoked offer for " << offer->framework_id() << " due to timeout after " << framework->offerTimeout.ms() << " ms";
         removeOffer(offer, true);
@@ -1259,8 +1262,8 @@ void Master::offer(const FrameworkID& frameworkId,
                  << " has terminated or is inactive";
 
     foreachpair (const SlaveID& slaveId, const Resources& offered, resources) {
-      dispatch(allocator, &AllocatorProcess::resourcesRecovered,
-               frameworkId, slaveId, offered);
+      dispatch(allocator, &AllocatorProcess::resourcesUnused,
+               frameworkId, slaveId, offered, Resources(), Option<Filters>::none());
     }
     return;
   }
@@ -1276,8 +1279,8 @@ void Master::offer(const FrameworkID& frameworkId,
                    << frameworkId << " because slave " << slaveId
                    << " is not valid";
 
-      dispatch(allocator, &AllocatorProcess::resourcesRecovered,
-               frameworkId, slaveId, offered);
+      dispatch(allocator, &AllocatorProcess::resourcesUnused,
+               frameworkId, slaveId, offered, Resources(), Option<Filters>::none());
       continue;
     }
 
@@ -1587,6 +1590,7 @@ void Master::processTasks(Offer* offer,
 	     offer->framework_id(),
 	     offer->slave_id(),
 	     unusedResources,
+             usedResources,
 	     filters);
   }
 
@@ -1713,10 +1717,12 @@ void Master::failoverFramework(Framework* framework, const UPID& newPid)
   // these resources to this framework if it wants.
   // TODO(benh): Consider just reoffering these to
   foreach (Offer* offer, utils::copy(framework->offers)) {
-    dispatch(allocator, &AllocatorProcess::resourcesRecovered,
+    dispatch(allocator, &AllocatorProcess::resourcesUnused,
              offer->framework_id(),
              offer->slave_id(),
-             Resources(offer->resources()));
+             Resources(offer->resources()),
+             Resources(),
+             Option<Filters>::none());
     removeOffer(offer);
   }
 }
@@ -1747,10 +1753,12 @@ void Master::removeFramework(Framework* framework)
 
   // Remove the framework's offers (if they weren't removed before).
   foreach (Offer* offer, utils::copy(framework->offers)) {
-    dispatch(allocator, &AllocatorProcess::resourcesRecovered,
+    dispatch(allocator, &AllocatorProcess::resourcesUnused,
              offer->framework_id(),
              offer->slave_id(),
-             Resources(offer->resources()));
+             Resources(offer->resources()),
+             Resources(),
+             Option<Filters>::none());
     removeOffer(offer);
   }
 

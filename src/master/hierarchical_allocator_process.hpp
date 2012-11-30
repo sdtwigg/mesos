@@ -48,7 +48,6 @@ struct FrameworkResources
 {
   FrameworkResources() {};
   Resources activeRes;  // currently used on slave
-  Resources offeredRes;
   Resources guaranteedRes;
   Resources revokedRes; // what we told it to lose, overlaps w/ activeRes
 };
@@ -99,7 +98,8 @@ public:
   void resourcesUnused(
       const FrameworkID& frameworkId,
       const SlaveID& slaveId,
-      const Resources& resources,
+      const Resources& resourcesUnused,
+      const Resources& resourcesUsed,
       const Option<Filters>& filters);
 
   void resourcesRecovered(
@@ -267,6 +267,7 @@ void HierarchicalAllocatorProcess<UserSorter, FrameworkSorter>::frameworkRemoved
   }
 
   users.erase(frameworkId);
+  frameworks.erase(frameworkId);
 
   // If this user doesn't have any more active frameworks, remove it.
   if (sorters[user]->count() == 0) {
@@ -417,6 +418,13 @@ void HierarchicalAllocatorProcess<UserSorter, FrameworkSorter>::resourcesRequest
     const std::vector<Request>& requests)
 {
   CHECK(initialized);
+  CHECK(frameworks.contains(frameworkId));
+
+  // update guaranteed resources
+  foreach (const Request& request, requests) {
+    frameworks[frameworkId].guaranteedRes = request.resources();
+    break;
+  }
 
   LOG(INFO) << "Received resource request from framework " << frameworkId;
 }
@@ -426,17 +434,22 @@ template <class UserSorter, class FrameworkSorter>
 void HierarchicalAllocatorProcess<UserSorter, FrameworkSorter>::resourcesUnused(
     const FrameworkID& frameworkId,
     const SlaveID& slaveId,
-    const Resources& resources,
+    const Resources& resourcesUnused,
+    const Resources& resourcesUsed,
     const Option<Filters>& filters)
 {
   CHECK(initialized);
 
-  if (resources.allocatable().size() == 0) {
+  // Updated resources used
+  CHECK(frameworks.contains(frameworkId));
+  frameworks[frameworkId].activeRes += resourcesUsed;
+
+  if (resourcesUnused.allocatable().size() == 0) {
     return;
   }
 
   VLOG(1) << "Framework " << frameworkId
-          << " left " << resources.allocatable()
+          << " left " << resourcesUnused.allocatable()
           << " unused on slave " << slaveId;
 
   // Update resources allocated to framework. It is
@@ -447,13 +460,13 @@ void HierarchicalAllocatorProcess<UserSorter, FrameworkSorter>::resourcesUnused(
   CHECK(users.contains(frameworkId));
 
   std::string user = users[frameworkId];
-  sorters[user]->unallocated(frameworkId.value(), resources);
-  sorters[user]->remove(resources);
-  userSorter->unallocated(user, resources);
+  sorters[user]->unallocated(frameworkId.value(), resourcesUnused);
+  sorters[user]->remove(resourcesUnused);
+  userSorter->unallocated(user, resourcesUnused);
 
   // Update resources allocatable on slave.
   CHECK(allocatable.contains(slaveId));
-  allocatable[slaveId] += resources;
+  allocatable[slaveId] += resourcesUnused;
 
   // Create a refused resources filter.
   Seconds seconds(filters.isSome()
@@ -467,7 +480,7 @@ void HierarchicalAllocatorProcess<UserSorter, FrameworkSorter>::resourcesUnused(
 
     // Create a new filter and delay it's expiration.
     mesos::internal::master::Filter* filter =
-      new RefusedFilter(slaveId, resources, Timeout(seconds));
+      new RefusedFilter(slaveId, resourcesUnused, Timeout(seconds));
 
     this->filters.put(frameworkId, filter);
 
@@ -502,6 +515,9 @@ void HierarchicalAllocatorProcess<UserSorter, FrameworkSorter>::resourcesRecover
     sorters[user]->unallocated(frameworkId.value(), resources);
     sorters[user]->remove(resources);
     userSorter->unallocated(user, resources);
+
+    CHECK(frameworks.contains(frameworkId));
+    frameworks[frameworkId].activeRes -= resources;
   }
 
   // Update resources allocatable on slave (if slave still exists,
