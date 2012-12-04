@@ -73,7 +73,8 @@ public:
   virtual void resourcesUnused(
       const FrameworkID& frameworkId,
       const SlaveID& slaveId,
-      const Resources& resources,
+      const Resources& resourcesUnused,
+      const Resources& resourcesUsed,
       const Option<Filters>& filters) = 0;
 
   // Whenever resources are "recovered" in the cluster (e.g., a task

@@ -844,12 +844,13 @@ void Master::reviveOffers(const FrameworkID& frameworkId)
   }
 }
 
-void Master::revokeFramework(const FrameworkID& frameworkId)
+void Master::revokeFramework(const FrameworkID& frameworkId, const Resources& resources)
 {
   LOG(INFO) << "Asked to revoke framework " << frameworkId;
 
   Framework* framework = getFramework(frameworkId);
   if (framework != NULL) {
+    Resources revoked;
     foreachvalue(Task* task, framework->tasks) {
       TaskID taskId = task->task_id();
         // copy unnecessary since not actually adjusting data structure yet
@@ -866,6 +867,9 @@ void Master::revokeFramework(const FrameworkID& frameworkId)
       message.mutable_framework_id()->MergeFrom(frameworkId);
       message.mutable_task_id()->MergeFrom(taskId);
       send(slave->pid, message);
+
+      revoked += Resources(task->resources());
+      if (resources <= revoked) break;
     }
   }
 }

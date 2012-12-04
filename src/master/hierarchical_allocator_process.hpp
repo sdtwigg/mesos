@@ -518,6 +518,7 @@ void HierarchicalAllocatorProcess<UserSorter, FrameworkSorter>::resourcesRecover
 
     CHECK(frameworks.contains(frameworkId));
     frameworks[frameworkId].activeRes -= resources;
+    frameworks[frameworkId].revokedRes = Resources();
   }
 
   // Update resources allocatable on slave (if slave still exists,
@@ -609,18 +610,42 @@ void HierarchicalAllocatorProcess<UserSorter, FrameworkSorter>::batch()
 template <class UserSorter, class FrameworkSorter>
 void HierarchicalAllocatorProcess<UserSorter, FrameworkSorter>::checkUtilization()
 {
-  hashmap<SlaveID, Resources> available = tallyResources(slaves.keys(), false);
 
-  if (available.size() == 0) {
-    foreach (const std::string& user, userSorter->sort()) {
-      foreach (const std::string& frameworkIdValue, sorters[user]->sort()) {
-        FrameworkID frameworkId;
-        frameworkId.set_value(frameworkIdValue);
+  
+  Resources available;
+  foreachvalue (const SlaveInfo& slaveInfo, slaves) {
+    available += Resources(slaveInfo.resources());
+  }
 
-        dispatch(master, &Master::revokeFramework, frameworkId);
-      }
+  // find someone under their gurantee
+  Resources needed;
+  foreachvalue (const FrameworkResources& framework, frameworks) {
+    available = available - framework.activeRes + framework.revokedRes;
+    if (!(framework.guaranteedRes <= framework.activeRes)) {
+      needed = needed + framework.guaranteedRes - framework.activeRes;
     }
   }
+
+  needed = needed - available;
+  if (needed.size() <= 0) return;
+
+  // find someone over their guarantee
+  // make available + revoke == needed to match guarantee
+  hashmap<FrameworkID, Resources> revokeMap;
+  foreachpair (const FrameworkID& frameworkId, const FrameworkResources& framework, frameworks) {
+    Resources toBeRevoked = framework.activeRes - framework.guaranteedRes - framework.revokedRes;
+    if (toBeRevoked.size() > 0) {
+      revokeMap[frameworkId] = toBeRevoked;
+      needed = needed - toBeRevoked;
+      if (needed.size() <= 0) break;
+    }
+  }
+
+  foreachpair (const FrameworkID& frameworkId, const Resources& resources, revokeMap) {
+    frameworks[frameworkId].revokedRes += resources;
+    dispatch(master, &Master::revokeFramework, frameworkId, resources);
+  }
+
 }
 
 template <class UserSorter, class FrameworkSorter>
