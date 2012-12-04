@@ -111,7 +111,7 @@ public:
 
 protected:
   // Allocate any allocatable resources.
-  hashmap<SlaveID, Resources> tallyResources(const hashset<SlaveID>& slaveIds, bool writeLog=false);
+  hashmap<SlaveID, Resources> filterAllocatable(const hashset<SlaveID>& slaveIds, bool writeLog=false);
   
   // Callback for doing batch allocations.
   void batch();
@@ -559,7 +559,7 @@ void HierarchicalAllocatorProcess<UserSorter, FrameworkSorter>::offersRevived(co
 }
 
 template <class UserSorter, class FrameworkSorter>
-hashmap<SlaveID, Resources> HierarchicalAllocatorProcess<UserSorter, FrameworkSorter>::tallyResources(const hashset<SlaveID>& slaveIds, bool writeLog)
+hashmap<SlaveID, Resources> HierarchicalAllocatorProcess<UserSorter, FrameworkSorter>::filterAllocatable(const hashset<SlaveID>& slaveIds, bool writeLog)
 {
   // Get out only "available" resources (i.e., resources that are
   // allocatable and above a certain threshold, see below).
@@ -691,7 +691,7 @@ void HierarchicalAllocatorProcess<UserSorter, FrameworkSorter>::allocate(const h
     return;
   }
 
-  hashmap<SlaveID, Resources> available = tallyResources(slaveIds, true);
+  hashmap<SlaveID, Resources> available = filterAllocatable(slaveIds, true);
 
   if (available.size() == 0) {
     VLOG(1) << "No resources available to allocate!";
