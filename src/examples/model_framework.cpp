@@ -172,7 +172,7 @@ public:
       return;
     }
 
-    sleep(2);
+    //sleep(2);
 
     for (size_t i = 0; (i < offers.size()) && generator.hasTasks(); i++) {
       const Offer& offer = offers[i];

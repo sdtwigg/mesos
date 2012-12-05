@@ -51,11 +51,12 @@ public:
 
   virtual ~LongLivedScheduler() {}
 
-  virtual void registered(SchedulerDriver*,
+  virtual void registered(SchedulerDriver* driver,
                           const FrameworkID&,
                           const MasterInfo&)
   {
     cout << "Registered!" << endl;
+    set_guaranteed_share(driver);
   }
 
   virtual void reregistered(SchedulerDriver*, const MasterInfo& masterInfo) {}
@@ -153,6 +154,29 @@ private:
   string uri;
   int tasksLaunched;
   Stopwatch curTaskTime;
+
+  void set_guaranteed_share(SchedulerDriver* driver)
+  {
+    vector<Request> requests;
+    Request guaranteed_share;
+
+    Resource* resource;
+
+    resource = guaranteed_share.add_resources();
+    resource->set_name("cpus");
+    resource->set_type(Value::SCALAR);
+    resource->mutable_scalar()->set_value(CPUS_PER_TASK*3);
+
+    resource = guaranteed_share.add_resources();
+    resource->set_name("mem");
+    resource->set_type(Value::SCALAR);
+    resource->mutable_scalar()->set_value(MEM_PER_TASK*3);
+
+    requests.push_back(guaranteed_share);
+    driver->requestResources(requests);
+
+    cout << "Sent Guaranteed Share Request.";
+  }
 };
 
 
@@ -184,3 +208,4 @@ int main(int argc, char** argv)
 
   return driver.run() == DRIVER_STOPPED ? 0 : 1;
 }
+
