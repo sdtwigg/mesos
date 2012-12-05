@@ -618,12 +618,18 @@ void HierarchicalAllocatorProcess<UserSorter, FrameworkSorter>::checkUtilization
   }
   LOG(INFO) << "SYSTEM TOTAL: " << available;
 
-  // find someone under their guarantee
+  // Find needed resources to fullfill unsatisfied guarantees
   Resources needed;
   foreachvalue (const FrameworkResources& framework, frameworks) {
     available = available - framework.activeRes + framework.revokedRes;
-    if (!(framework.guaranteedRes <= framework.activeRes)) {
-      needed = needed + framework.guaranteedRes - framework.activeRes;
+    foreach(const Resource& guarantee, framework.guaranteedRes) {
+      Option<Resource> currentUse = framework.activeRes.get(guarantee);
+      
+      if(currentUse.isNone()) {
+        needed = needed + guarantee;
+      } else if(currentUse.get() <= guarantee) {
+        needed = needed + (guarantee - currentUse.get());
+      }
     }
   }
 
@@ -642,10 +648,13 @@ void HierarchicalAllocatorProcess<UserSorter, FrameworkSorter>::checkUtilization
     
     // figure out which resources we are using in excess that actually are needed
     foreach(const Resource& currentNeed, needed) {
-      Option<Resource> option = excess.get(currentNeed);
-      if (!option.isNone()) {
-        if(currentNeed <= option.get()) toBeRevoked += currentNeed;
-        else toBeRevoked += option.get();
+      Option<Resource> currentExcess = excess.get(currentNeed);
+      // Only continue revocation if actually in excess and the resource is scalar
+      // TODO: handle non-scalar revocations
+      if(currentExcess.isNone() || !currentExcess.get().has_scalar()) continue;
+      if (currentExcess.get().scalar().value() > 0) {
+        if(currentNeed <= currentExcess.get()) toBeRevoked += currentNeed;
+        else toBeRevoked += currentExcess.get();
       }
     }
     // assign framework to be revoked, update how many resources still need revoked
