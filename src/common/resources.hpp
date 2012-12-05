@@ -122,6 +122,17 @@ public:
     return resources.size();
   }
 
+  bool hasPositive() const //TODO: have this work with non-scalar resources as well
+  {
+    foreach(const Resource& resource, resources) {
+      if(resource.type() == Value::SCALAR) {
+        if(resource.scalar().value() > 0) return true;
+      }
+    }
+
+    return false;
+  }
+
   // Using this operator makes it easy to copy a resources object into
   // a protocol buffer field.
   operator const google::protobuf::RepeatedPtrField<Resource>& () const

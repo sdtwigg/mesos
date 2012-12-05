@@ -426,7 +426,7 @@ void HierarchicalAllocatorProcess<UserSorter, FrameworkSorter>::resourcesRequest
     break;
   }
 
-  LOG(INFO) << "Received resource request from framework " << frameworkId;
+  LOG(INFO) << "Received resource request from framework " << frameworkId << ", guarantee is now " << frameworks[frameworkId].guaranteedRes;
 }
 
 
@@ -616,8 +616,9 @@ void HierarchicalAllocatorProcess<UserSorter, FrameworkSorter>::checkUtilization
   foreachvalue (const SlaveInfo& slaveInfo, slaves) {
     available += Resources(slaveInfo.resources());
   }
+  LOG(INFO) << "SYSTEM TOTAL: " << available;
 
-  // find someone under their gurantee
+  // find someone under their guarantee
   Resources needed;
   foreachvalue (const FrameworkResources& framework, frameworks) {
     available = available - framework.activeRes + framework.revokedRes;
@@ -626,21 +627,35 @@ void HierarchicalAllocatorProcess<UserSorter, FrameworkSorter>::checkUtilization
     }
   }
 
+  LOG(INFO) << "Available: " << available << " , Needed: " << needed;
+
   needed = needed - available;
-  if (needed.size() <= 0) return;
+  LOG(INFO) << "Revocation target: " << needed;
+  if (!needed.hasPositive()) return;
 
   // find someone over their guarantee
   // make available + revoke == needed to match guarantee
   hashmap<FrameworkID, Resources> revokeMap;
   foreachpair (const FrameworkID& frameworkId, const FrameworkResources& framework, frameworks) {
-    Resources toBeRevoked = framework.activeRes - framework.guaranteedRes - framework.revokedRes;
-    if (toBeRevoked.size() > 0) {
+    Resources excess = framework.activeRes - framework.guaranteedRes - framework.revokedRes;
+    Resources toBeRevoked;
+    
+    // figure out which resources we are using in excess that actually are needed
+    foreach(const Resource& currentNeed, needed) {
+      Option<Resource> option = excess.get(currentNeed);
+      if (!option.isNone()) {
+        if(currentNeed <= option.get()) toBeRevoked += currentNeed;
+        else toBeRevoked += option.get();
+      }
+    }
+    // assign framework to be revoked, update how many resources still need revoked
+    if (toBeRevoked.hasPositive()) {
       revokeMap[frameworkId] = toBeRevoked;
       needed = needed - toBeRevoked;
-      if (needed.size() <= 0) break;
+      if (!needed.hasPositive()) break;
     }
   }
-
+  // Actually send the revocation commands to master
   foreachpair (const FrameworkID& frameworkId, const Resources& resources, revokeMap) {
     frameworks[frameworkId].revokedRes += resources;
     dispatch(master, &Master::revokeFramework, frameworkId, resources);
