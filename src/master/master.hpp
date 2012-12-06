@@ -94,7 +94,7 @@ public:
                     const std::list<OfferID>& offerIds);
   void reviveOffers(const FrameworkID& frameworkId);
   void killTask(const FrameworkID& frameworkId, const TaskID& taskId);
-  void revokeFramework(const FrameworkID& frameworkId, const Resources& resources);
+  void revokeFramework(const FrameworkID& frameworkId, Resources revoke);
   void schedulerMessage(const SlaveID& slaveId,
                         const FrameworkID& frameworkId,
                         const ExecutorID& executorId,
