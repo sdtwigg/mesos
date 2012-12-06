@@ -851,10 +851,10 @@ void Master::revokeFramework(const FrameworkID& frameworkId, const Resources& re
   Framework* framework = getFramework(frameworkId);
   if (framework != NULL) {
     Resources revoked;
-    foreachvalue(Task* task, framework->tasks) {
-      TaskID taskId = task->task_id();
-        // copy unnecessary since not actually adjusting data structure yet
-        // only sending kill messages here
+    foreach(const TaskID& taskId, framework->orderedTaskList) {
+      Task* task = framework->tasks[taskId];
+      // copy unnecessary since not actually adjusting data structure yet
+      // only sending kill messages here
       Slave* slave = getSlave(task->slave_id());
       CHECK(slave != NULL);
 
