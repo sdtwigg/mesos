@@ -844,17 +844,17 @@ void Master::reviveOffers(const FrameworkID& frameworkId)
   }
 }
 
-void Master::revokeFramework(const FrameworkID& frameworkId, const Resources& resources)
+void Master::revokeFramework(const FrameworkID& frameworkId, Resources revoke)
 {
   LOG(INFO) << "Asked to revoke framework " << frameworkId;
 
   Framework* framework = getFramework(frameworkId);
   if (framework != NULL) {
-    Resources revoked;
-    foreachvalue(Task* task, framework->tasks) {
-      TaskID taskId = task->task_id();
-        // copy unnecessary since not actually adjusting data structure yet
-        // only sending kill messages here
+    foreach(const TaskID& taskId, framework->orderedTaskList) {
+      Task* task = framework->tasks[taskId];
+      // copy unnecessary since not actually adjusting data structure yet
+      // only sending kill messages here
+      // TODO: Actually check that revocation will actually lower revoke
       Slave* slave = getSlave(task->slave_id());
       CHECK(slave != NULL);
 
@@ -868,8 +868,8 @@ void Master::revokeFramework(const FrameworkID& frameworkId, const Resources& re
       message.mutable_task_id()->MergeFrom(taskId);
       send(slave->pid, message);
 
-      revoked += Resources(task->resources());
-      if (resources <= revoked) break;
+      revoke -= Resources(task->resources());
+      if (!revoke.hasPositive()) break;
     }
   }
 }

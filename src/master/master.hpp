@@ -94,7 +94,7 @@ public:
                     const std::list<OfferID>& offerIds);
   void reviveOffers(const FrameworkID& frameworkId);
   void killTask(const FrameworkID& frameworkId, const TaskID& taskId);
-  void revokeFramework(const FrameworkID& frameworkId, const Resources& resources);
+  void revokeFramework(const FrameworkID& frameworkId, Resources revoke);
   void schedulerMessage(const SlaveID& slaveId,
                         const FrameworkID& frameworkId,
                         const ExecutorID& executorId,
@@ -407,6 +407,7 @@ struct Framework
   {
     CHECK(!tasks.contains(task->task_id()));
     tasks[task->task_id()] = task;
+    orderedTaskList.push_front(task->task_id());
     resources += task->resources();
   }
 
@@ -421,6 +422,7 @@ struct Framework
     }
 
     tasks.erase(task->task_id());
+    orderedTaskList.remove(task->task_id());
     resources -= task->resources();
   }
 
@@ -486,6 +488,7 @@ struct Framework
   double unregisteredTime;
 
   hashmap<TaskID, Task*> tasks;
+  std::list<TaskID> orderedTaskList;
 
   std::list<Task> completedTasks;
 
