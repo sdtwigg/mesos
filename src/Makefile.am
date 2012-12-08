@@ -715,6 +715,11 @@ model_framework_SOURCES = examples/model_framework.cpp
 model_framework_CPPFLAGS = $(MESOS_CPPFLAGS)
 model_framework_LDADD = libmesos.la
 
+check_PROGRAMS += model-framework2
+model_framework2_SOURCES = examples/model_framework2.cpp
+model_framework2_CPPFLAGS = $(MESOS_CPPFLAGS)
+model_framework2_LDADD = libmesos.la
+
 check_PROGRAMS += test-framework
 test_framework_SOURCES = examples/test_framework.cpp
 test_framework_CPPFLAGS = $(MESOS_CPPFLAGS)

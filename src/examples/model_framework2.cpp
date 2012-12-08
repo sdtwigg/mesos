@@ -107,7 +107,7 @@ public:
       pushTaskBack(Task(tasksGenned++));
     }
 
-    delay(Seconds(5), self(), &TaskGenerator::genTask);
+    delay(Seconds(2.5), self(), &TaskGenerator::genTask);
   }
 
   Task popTask()
@@ -147,12 +147,11 @@ public:
 
   virtual ~ModelScheduler() {}
 
-  virtual void registered(SchedulerDriver* driver,
+  virtual void registered(SchedulerDriver*,
                           const FrameworkID&,
                           const MasterInfo&)
   {
     cout << "Registered!" << endl;
-    set_guaranteed_share(driver);
   }
 
   virtual void reregistered(SchedulerDriver*, const MasterInfo& masterInfo) {}
@@ -289,31 +288,8 @@ private:
   TaskGenerator& generator;
   string uri;
   list<Task> tasksInFlight;
-
+  
   Stopwatch life;
-
-  void set_guaranteed_share(SchedulerDriver* driver)
-  {
-    vector<Request> requests;
-    Request guaranteed_share;
-
-    Resource* resource;
-
-    resource = guaranteed_share.add_resources();
-    resource->set_name("cpus");
-    resource->set_type(Value::SCALAR);
-    resource->mutable_scalar()->set_value(CPUS_PER_TASK*2);
-
-    resource = guaranteed_share.add_resources();
-    resource->set_name("mem");
-    resource->set_type(Value::SCALAR);
-    resource->mutable_scalar()->set_value(MEM_PER_TASK*2);
-
-    requests.push_back(guaranteed_share);
-    driver->requestResources(requests);
-
-    cout << "Sent Guaranteed Share Request.";
-  }
 };
 
 int main(int argc, char** argv)
@@ -325,9 +301,9 @@ int main(int argc, char** argv)
 
   // Find this executable's directory to locate executor.
   string path = os::realpath(dirname(argv[0])).get();
-  string uri = path + "/long-lived-executor";
+  string uri = path + "/forever-executor";
   if (getenv("MESOS_BUILD_DIR")) {
-    uri = string(getenv("MESOS_BUILD_DIR")) + "/src/long-lived-executor";
+    uri = string(getenv("MESOS_BUILD_DIR")) + "/src/forever-executor";
   }
 
   ExecutorInfo executor;

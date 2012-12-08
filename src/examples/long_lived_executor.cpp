@@ -35,7 +35,8 @@ using std::string;
 
 void run(ExecutorDriver* driver, const TaskInfo& task)
 {
-  sleep(6 + (random() % 10));
+  //sleep(6 + (random() % 10));
+  sleep(10);
 
   TaskStatus status;
   status.mutable_task_id()->MergeFrom(task.task_id());

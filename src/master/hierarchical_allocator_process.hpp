@@ -33,6 +33,7 @@
 #include "master/master.hpp"
 #include "master/sorter.hpp"
 
+const int revocationInterval = 1;
 
 namespace mesos {
 namespace internal {
@@ -59,7 +60,7 @@ template <class UserSorter, class FrameworkSorter>
 class HierarchicalAllocatorProcess : public AllocatorProcess
 {
 public:
-  HierarchicalAllocatorProcess() : initialized(false) {}
+  HierarchicalAllocatorProcess() : initialized(false), revocationCountdown(revocationInterval) {}
 
   virtual ~HierarchicalAllocatorProcess() {}
 
@@ -169,6 +170,8 @@ protected:
 
   // Map of framework to resource types
   hashmap<FrameworkID, FrameworkResources> frameworks;
+  
+  int revocationCountdown;
 };
 
 
@@ -610,7 +613,6 @@ void HierarchicalAllocatorProcess<UserSorter, FrameworkSorter>::batch()
 template <class UserSorter, class FrameworkSorter>
 void HierarchicalAllocatorProcess<UserSorter, FrameworkSorter>::checkUtilization()
 {
-
   
   Resources available;
   foreachvalue (const SlaveInfo& slaveInfo, slaves) {
@@ -637,7 +639,15 @@ void HierarchicalAllocatorProcess<UserSorter, FrameworkSorter>::checkUtilization
 
   needed = needed - available;
   LOG(INFO) << "Revocation target: " << needed;
-  if (!needed.hasPositive()) return;
+
+  // Return and reset overload watch if nothing to revoke
+  if (!needed.hasPositive())
+  {
+    revocationCountdown = revocationInterval;
+    return;
+  }
+  // Return if system not overloaded for long enough
+  if (--revocationCountdown > 0) return;
 
   // find someone over their guarantee
   // make available + revoke == needed to match guarantee
