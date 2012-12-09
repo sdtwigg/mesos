@@ -107,7 +107,7 @@ public:
       pushTaskBack(Task(tasksGenned++));
     }
 
-    delay(Seconds(2.5), self(), &TaskGenerator::genTask);
+    delay(Seconds((taskQueue.size() < 10) ? (0.1) : (2.5)), self(), &TaskGenerator::genTask);
   }
 
   Task popTask()

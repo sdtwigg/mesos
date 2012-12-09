@@ -182,7 +182,7 @@ public:
       pushTaskBack(Task(taskID, required, 30));
     }
 
-    delay(Seconds(15), self(), &TaskGenerator::genTask);
+    delay(Seconds(16), self(), &TaskGenerator::genTask);
   }
 private:
   int tasksGenned;
@@ -203,7 +203,7 @@ public:
       pushTaskBack(Task(taskID, speculative, 45));
     }
 
-    delay(Seconds(10), self(), &TaskGenerator::genTask);
+    delay(Seconds(7), self(), &TaskGenerator::genTask);
   }
 private:
   int tasksGenned;
