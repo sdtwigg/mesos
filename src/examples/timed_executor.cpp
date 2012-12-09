@@ -22,6 +22,9 @@
 #include <cstdlib>
 #include <iostream>
 
+#include <boost/lexical_cast.hpp>
+using boost::lexical_cast;
+
 #include <tr1/functional>
 
 #include <mesos/executor.hpp>
@@ -35,7 +38,16 @@ using std::string;
 
 void run(ExecutorDriver* driver, const TaskInfo& task)
 {
-  sleep(random() % 10);
+  int execTime = 10;
+  if(task.has_data())
+  {
+    try {execTime = lexical_cast<int>(task.data());}
+    catch( boost::bad_lexical_cast const&)
+      {cout << "Malformed Task data: " << task.data() << endl;}
+  }
+  cout << "Running task for " << execTime << " secs." << endl;
+  //sleep(6 + (random() % 10));
+  sleep(execTime);
 
   TaskStatus status;
   status.mutable_task_id()->MergeFrom(task.task_id());
@@ -54,10 +66,10 @@ void* start(void* arg)
 }
 
 
-class LongLivedExecutor : public Executor
+class TimedExecutor : public Executor
 {
 public:
-  virtual ~LongLivedExecutor() {}
+  virtual ~TimedExecutor() {}
 
   virtual void registered(ExecutorDriver* driver,
                           const ExecutorInfo& executorInfo,
@@ -109,7 +121,7 @@ public:
 
 int main(int argc, char** argv)
 {
-  LongLivedExecutor executor;
+  TimedExecutor executor;
   MesosExecutorDriver driver(&executor);
   return driver.run() == DRIVER_STOPPED ? 0 : 1;
 }

@@ -63,22 +63,59 @@ using std::deque;
 const int32_t CPUS_PER_TASK = 1;
 const int32_t MEM_PER_TASK = 32;
 
+enum task_type {
+  required, speculative
+} ;
+
 struct Task
 {
   int taskID;
+  task_type type;
+  int execTime;
   Stopwatch lifetime;
+  
+  Task(const int taskID_=-1, const task_type type_=speculative, const int execTime_ = 10) : 
+    taskID(taskID_),
+    type(type_),
+    execTime(execTime_)
+    {lifetime.start();}
 
-  Task(const int taskID_) : 
-    taskID(taskID_) {lifetime.start();}
   ~Task() {}
 };
+
+class ParallelCounter
+{
+public:
+  ParallelCounter() : counter(0)
+    {
+      pthread_mutexattr_t attr;
+      pthread_mutexattr_init(&attr);
+      pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE);
+      pthread_mutex_init(&counterMutex, &attr);
+      pthread_mutexattr_destroy(&attr);
+    }
+
+  ~ParallelCounter()
+  {
+    pthread_mutex_destroy(&counterMutex);
+  }
+
+  int pop()
+  {
+    Lock lock(&counterMutex);
+    return counter++;
+  }
+
+private:
+  int counter;
+  pthread_mutex_t counterMutex;
+};
+static ParallelCounter TaskIDCounter;
 
 class TaskGenerator : public Process<TaskGenerator> 
 {
 public:
   TaskGenerator()
-    : ProcessBase(ID::generate("taskgenerator")),
-      tasksGenned(0)
     {
       pthread_mutexattr_t attr;
       pthread_mutexattr_init(&attr);
@@ -98,17 +135,12 @@ public:
     return !(taskQueue.empty());
   }
 
-  void genTask()
+  int queueSize() // this should possibly grab the lock
   {
-    if(taskQueue.size() < 20)
-      // Technically should lock when accessing queue but do not care if slightly off
-    {
-      cout << "Generating task " << tasksGenned << endl;
-      pushTaskBack(Task(tasksGenned++));
-    }
-
-    delay(Seconds(5), self(), &TaskGenerator::genTask);
+    return taskQueue.size();
   }
+
+  virtual void genTask() {}
 
   Task popTask()
   {
@@ -133,16 +165,57 @@ public:
 private:
   deque<Task> taskQueue;
   pthread_mutex_t queueMutex;
+};
 
+class ReqTaskGenerator : public TaskGenerator
+{
+public:
+  ReqTaskGenerator() : tasksGenned(0) {}
+  ~ReqTaskGenerator() {}
+
+  virtual void genTask()
+  {
+    if(queueSize() < 20)
+    {
+      int taskID = TaskIDCounter.pop();
+      cout << "Generating task " << taskID << " as required #" << ++tasksGenned << endl;
+      pushTaskBack(Task(taskID, required, 30));
+    }
+
+    delay(Seconds(15), self(), &TaskGenerator::genTask);
+  }
+private:
+  int tasksGenned;
+};
+
+class SpecTaskGenerator : public TaskGenerator
+{
+public:
+  SpecTaskGenerator() : tasksGenned(0) {}
+  ~SpecTaskGenerator() {}
+
+  virtual void genTask()
+  {
+    if(queueSize() < 20)
+    {
+      int taskID = TaskIDCounter.pop();
+      cout << "Generating task " << taskID << " as speculative #" << ++tasksGenned << endl;
+      pushTaskBack(Task(taskID, speculative, 45));
+    }
+
+    delay(Seconds(10), self(), &TaskGenerator::genTask);
+  }
+private:
   int tasksGenned;
 };
 
 class ModelScheduler : public Scheduler
 {
 public:
-  ModelScheduler(const ExecutorInfo& _executor, TaskGenerator& _generator)
+  ModelScheduler(const ExecutorInfo& _executor, TaskGenerator& _Rgenerator, TaskGenerator& _Sgenerator)
     : executor(_executor),
-      generator(_generator)
+      Rgenerator(_Rgenerator),
+      Sgenerator(_Sgenerator)
     {life.start();}
 
   virtual ~ModelScheduler() {}
@@ -164,7 +237,7 @@ public:
   {
     cout << "Offer Received" << endl;
     // if no tasks available, return offers
-    if (!generator.hasTasks()) {
+    if (!Rgenerator.hasTasks() && !Sgenerator.hasTasks()) {
       for (size_t i = 0; i < offers.size(); i++) {
         const Offer& offer = offers[i];
         driver->declineOffer(offer.id());
@@ -175,61 +248,80 @@ public:
 
     //sleep(2);
 
-    for (size_t i = 0; (i < offers.size()) && generator.hasTasks(); i++) {
+    for (size_t i = 0; (i < offers.size()) && (Rgenerator.hasTasks() || Sgenerator.hasTasks()); i++) {
       const Offer& offer = offers[i];
 
-      // Lookup resources we care about.
-      // TODO(benh): It would be nice to ultimately have some helper
-      // functions for looking up resources.
-      double cpus = 0;
-      double mem = 0;
+      if(Rgenerator.hasTasks() || Sgenerator.hasTasks())
+      {
+        // Lookup resources we care about.
+        // TODO(benh): It would be nice to ultimately have some helper
+        // functions for looking up resources.
+        double cpus = 0;
+        double mem = 0;
 
-      for (int i = 0; i < offer.resources_size(); i++) {
-        const Resource& resource = offer.resources(i);
-        if (resource.name() == "cpus" &&
-            resource.type() == Value::SCALAR) {
-          cpus = resource.scalar().value();
-        } else if (resource.name() == "mem" &&
-                   resource.type() == Value::SCALAR) {
-          mem = resource.scalar().value();
+        for (int i = 0; i < offer.resources_size(); i++) {
+          const Resource& resource = offer.resources(i);
+          if (resource.name() == "cpus" &&
+              resource.type() == Value::SCALAR) {
+            cpus = resource.scalar().value();
+          } else if (resource.name() == "mem" &&
+                     resource.type() == Value::SCALAR) {
+            mem = resource.scalar().value();
+          }
         }
+
+        // Launch tasks 
+        vector<TaskInfo> tasks;
+        while (cpus >= CPUS_PER_TASK && mem >= MEM_PER_TASK) {
+          Task task;
+          if(Rgenerator.hasTasks()) // grab required tasks first
+          {
+            task = Rgenerator.popTask();
+          }
+          else if(Sgenerator.hasTasks()) // otherwise grab a speculative task
+          {
+            task = Sgenerator.popTask();
+          }
+          else break;
+
+          tasksInFlight.push_back(task);
+          int taskId = task.taskID;
+
+          cout << "Starting task " << taskId << " on "
+               << offer.hostname() << endl;
+
+          TaskInfo taskInfo;
+          taskInfo.set_name("Task " + lexical_cast<string>(taskId));
+          taskInfo.mutable_task_id()->set_value(lexical_cast<string>(taskId));
+          taskInfo.mutable_slave_id()->MergeFrom(offer.slave_id());
+          taskInfo.mutable_executor()->MergeFrom(executor);
+
+          Resource* resource;
+
+          resource = taskInfo.add_resources();
+          resource->set_name("cpus");
+          resource->set_type(Value::SCALAR);
+          resource->mutable_scalar()->set_value(CPUS_PER_TASK);
+
+          resource = taskInfo.add_resources();
+          resource->set_name("mem");
+          resource->set_type(Value::SCALAR);
+          resource->mutable_scalar()->set_value(MEM_PER_TASK);
+
+          taskInfo.set_data(lexical_cast<std::string>(task.execTime));
+          
+          tasks.push_back(taskInfo);
+
+          cpus -= CPUS_PER_TASK;
+          mem -= MEM_PER_TASK;
+        }
+
+        driver->launchTasks(offer.id(), tasks);
       }
-
-      // Launch tasks 
-      vector<TaskInfo> tasks;
-      while (cpus >= CPUS_PER_TASK && mem >= MEM_PER_TASK && generator.hasTasks()) {
-        Task task = generator.popTask();
-        tasksInFlight.push_back(task);
-        int taskId = task.taskID;
-
-        cout << "Starting task " << taskId << " on "
-             << offer.hostname() << endl;
-
-        TaskInfo taskInfo;
-        taskInfo.set_name("Task " + lexical_cast<string>(taskId));
-        taskInfo.mutable_task_id()->set_value(lexical_cast<string>(taskId));
-        taskInfo.mutable_slave_id()->MergeFrom(offer.slave_id());
-        taskInfo.mutable_executor()->MergeFrom(executor);
-
-        Resource* resource;
-
-        resource = taskInfo.add_resources();
-        resource->set_name("cpus");
-        resource->set_type(Value::SCALAR);
-        resource->mutable_scalar()->set_value(CPUS_PER_TASK);
-
-        resource = taskInfo.add_resources();
-        resource->set_name("mem");
-        resource->set_type(Value::SCALAR);
-        resource->mutable_scalar()->set_value(MEM_PER_TASK);
-
-        tasks.push_back(taskInfo);
-
-        cpus -= CPUS_PER_TASK;
-        mem -= MEM_PER_TASK;
+      else
+      {
+        driver->declineOffer(offer.id());
       }
-
-      driver->launchTasks(offer.id(), tasks);
     }
   }
 
@@ -259,14 +351,23 @@ public:
       if(status.state() == TASK_FINISHED)
       {
         task.lifetime.stop();
-        cout << "Task " << taskId << " finished after " << task.lifetime.elapsed().secs() << " at time " << life.elapsed().secs() << endl;
+        cout << "Task " << taskId << " " << (task.type==required ? "(REQ)" : "(spec)") << " finished after " << task.lifetime.elapsed().secs() << " at time " << life.elapsed().secs() << " after doing work of " << task.execTime << endl;
       } 
       else // now we know that the task is lost or killed
       {
-        generator.pushTaskFront(task);
-        cout << "Task " << taskId << " was placed back on the queue" << endl;
-      }
+        switch(task.type)
+        {
+          case required:
+            Rgenerator.pushTaskFront(task);
+            cout << "Task " << taskId << " was placed back on the REQ queue" << endl;
+            break;
 
+          case speculative:
+            Sgenerator.pushTaskFront(task);
+            cout << "Task " << taskId << " was placed back on the spec queue" << endl;
+            break;
+        }
+      }
     }
   }
 
@@ -286,10 +387,11 @@ public:
 
 private:
   const ExecutorInfo executor;
-  TaskGenerator& generator;
+  TaskGenerator& Rgenerator;
+  TaskGenerator& Sgenerator;
   string uri;
   list<Task> tasksInFlight;
-
+  
   Stopwatch life;
 
   void set_guaranteed_share(SchedulerDriver* driver)
@@ -334,8 +436,9 @@ int main(int argc, char** argv)
   executor.mutable_executor_id()->set_value("default");
   executor.mutable_command()->set_value(uri);
 
-  TaskGenerator generator;
-  ModelScheduler scheduler(executor, generator);
+  ReqTaskGenerator Rgenerator;
+  SpecTaskGenerator Sgenerator;
+  ModelScheduler scheduler(executor, Rgenerator, Sgenerator);
 
   FrameworkInfo framework;
   framework.set_user(""); // Have Mesos fill in the current user.
@@ -344,8 +447,10 @@ int main(int argc, char** argv)
   MesosSchedulerDriver driver(&scheduler, framework, argv[1]);
 
   // Startup the generator (MassSchedulerDriver already initialized libprocess)
-  spawn(generator);
-  dispatch(generator.self(), &TaskGenerator::genTask);
+  spawn(Rgenerator);
+  spawn(Sgenerator);
+  dispatch(Rgenerator.self(), &TaskGenerator::genTask);
+  dispatch(Sgenerator.self(), &TaskGenerator::genTask);
 
   return driver.run() == DRIVER_STOPPED ? 0 : 1;
 }

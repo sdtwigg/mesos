@@ -710,15 +710,25 @@ forever_executor_SOURCES = examples/forever_executor.cpp
 forever_executor_CPPFLAGS = $(MESOS_CPPFLAGS)
 forever_executor_LDADD = libmesos.la
 
+check_PROGRAMS += timed-executor
+timed_executor_SOURCES = examples/timed_executor.cpp
+timed_executor_CPPFLAGS = $(MESOS_CPPFLAGS)
+timed_executor_LDADD = libmesos.la
+
+check_PROGRAMS += speculative-framework
+speculative_framework_SOURCES = examples/speculative_framework.cpp
+speculative_framework_CPPFLAGS = $(MESOS_CPPFLAGS)
+speculative_framework_LDADD = libmesos.la
+
 check_PROGRAMS += model-framework
 model_framework_SOURCES = examples/model_framework.cpp
 model_framework_CPPFLAGS = $(MESOS_CPPFLAGS)
 model_framework_LDADD = libmesos.la
 
-check_PROGRAMS += model-framework2
-model_framework2_SOURCES = examples/model_framework2.cpp
-model_framework2_CPPFLAGS = $(MESOS_CPPFLAGS)
-model_framework2_LDADD = libmesos.la
+check_PROGRAMS += greedy-framework
+greedy_framework_SOURCES = examples/greedy_framework.cpp
+greedy_framework_CPPFLAGS = $(MESOS_CPPFLAGS)
+greedy_framework_LDADD = libmesos.la
 
 check_PROGRAMS += test-framework
 test_framework_SOURCES = examples/test_framework.cpp
