@@ -179,7 +179,7 @@ public:
     {
       int taskID = TaskIDCounter.pop();
       cout << "Generating task " << taskID << " as required #" << ++tasksGenned << endl;
-      pushTaskBack(Task(taskID, required, 30));
+      pushTaskBack(Task(taskID, required, 30 + (random() % 10) - 5));
     }
 
     delay(Seconds(16), self(), &TaskGenerator::genTask);
@@ -200,7 +200,7 @@ public:
     {
       int taskID = TaskIDCounter.pop();
       cout << "Generating task " << taskID << " as speculative #" << ++tasksGenned << endl;
-      pushTaskBack(Task(taskID, speculative, 45));
+      pushTaskBack(Task(taskID, speculative, 45 + (random() % 10) - 5));
     }
 
     delay(Seconds(7), self(), &TaskGenerator::genTask);
