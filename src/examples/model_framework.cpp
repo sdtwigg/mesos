@@ -66,10 +66,14 @@ const int32_t MEM_PER_TASK = 32;
 struct Task
 {
   int taskID;
+  int execTime;
   Stopwatch lifetime;
 
-  Task(const int taskID_) : 
-    taskID(taskID_) {lifetime.start();}
+  Task(const int taskID_=-1, const int execTime_ = 10) : 
+    taskID(taskID_),
+    execTime(execTime_)
+    {lifetime.start();}
+
   ~Task() {}
 };
 
@@ -104,10 +108,10 @@ public:
       // Technically should lock when accessing queue but do not care if slightly off
     {
       cout << "Generating task " << tasksGenned << endl;
-      pushTaskBack(Task(tasksGenned++));
+      pushTaskBack(Task(tasksGenned++, 30));
     }
 
-    delay(Seconds(5), self(), &TaskGenerator::genTask);
+    delay(Seconds(16), self(), &TaskGenerator::genTask);
   }
 
   Task popTask()
@@ -222,6 +226,8 @@ public:
         resource->set_name("mem");
         resource->set_type(Value::SCALAR);
         resource->mutable_scalar()->set_value(MEM_PER_TASK);
+        
+	taskInfo.set_data(lexical_cast<std::string>(task.execTime));
 
         tasks.push_back(taskInfo);
 
@@ -259,7 +265,7 @@ public:
       if(status.state() == TASK_FINISHED)
       {
         task.lifetime.stop();
-        cout << "Task " << taskId << " finished after " << task.lifetime.elapsed().secs() << " at time " << life.elapsed().secs() << endl;
+        cout << "Task " << taskId << " finished after " << task.lifetime.elapsed().secs() << " at time " << life.elapsed().secs() << " after doing work of " << task.execTime << endl;
       } 
       else // now we know that the task is lost or killed
       {

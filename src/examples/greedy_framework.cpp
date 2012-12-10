@@ -258,7 +258,7 @@ public:
       if(status.state() == TASK_FINISHED)
       {
         task.lifetime.stop();
-        cout << "Task " << taskId << " finished after " << task.lifetime.elapsed().secs() << " at time " << life.elapsed().secs() << endl;
+        cout << "Task " << taskId << " finished after " << task.lifetime.elapsed().secs() << " at time " << life.elapsed().secs() << " after doing work of approximately 300" << endl;
       } 
       else // now we know that the task is lost or killed
       {
