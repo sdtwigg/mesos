@@ -69,7 +69,7 @@ struct Task
   int execTime;
   Stopwatch lifetime;
 
-  Task(const int taskID_=-1, const int execTime_ = 300) : 
+  Task(const int taskID_=-1, const int execTime_ = 180) : 
     taskID(taskID_),
     execTime(execTime_)
     {lifetime.start();}
@@ -108,7 +108,7 @@ public:
       // Technically should lock when accessing queue but do not care if slightly off
     {
       cout << "Generating task " << tasksGenned << endl;
-      pushTaskBack(Task(tasksGenned++, 300 + (random() % 30) - 15));
+      pushTaskBack(Task(tasksGenned++, 180 + (random() % 30) - 15));
     }
 
     delay(Seconds((taskQueue.size() < 10) ? (0.1) : (2.5)), self(), &TaskGenerator::genTask);
