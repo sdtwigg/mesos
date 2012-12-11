@@ -66,10 +66,14 @@ const int32_t MEM_PER_TASK = 32;
 struct Task
 {
   int taskID;
+  int execTime;
   Stopwatch lifetime;
 
-  Task(const int taskID_) : 
-    taskID(taskID_) {lifetime.start();}
+  Task(const int taskID_=-1, const int execTime_ = 300) : 
+    taskID(taskID_),
+    execTime(execTime_)
+    {lifetime.start();}
+
   ~Task() {}
 };
 
@@ -104,7 +108,7 @@ public:
       // Technically should lock when accessing queue but do not care if slightly off
     {
       cout << "Generating task " << tasksGenned << endl;
-      pushTaskBack(Task(tasksGenned++));
+      pushTaskBack(Task(tasksGenned++, 300 + (random() % 30) - 15));
     }
 
     delay(Seconds((taskQueue.size() < 10) ? (0.1) : (2.5)), self(), &TaskGenerator::genTask);
@@ -147,11 +151,12 @@ public:
 
   virtual ~ModelScheduler() {}
 
-  virtual void registered(SchedulerDriver*,
+  virtual void registered(SchedulerDriver* driver,
                           const FrameworkID&,
                           const MasterInfo&)
   {
     cout << "Registered!" << endl;
+    set_guaranteed_share(driver);
   }
 
   virtual void reregistered(SchedulerDriver*, const MasterInfo& masterInfo) {}
@@ -221,6 +226,8 @@ public:
         resource->set_name("mem");
         resource->set_type(Value::SCALAR);
         resource->mutable_scalar()->set_value(MEM_PER_TASK);
+        
+	taskInfo.set_data(lexical_cast<std::string>(task.execTime));
 
         tasks.push_back(taskInfo);
 
@@ -258,7 +265,7 @@ public:
       if(status.state() == TASK_FINISHED)
       {
         task.lifetime.stop();
-        cout << "Task " << taskId << " finished after " << task.lifetime.elapsed().secs() << " at time " << life.elapsed().secs() << " after doing work of approximately 300" << endl;
+        cout << "Task " << taskId << " finished after " << task.lifetime.elapsed().secs() << " at time " << life.elapsed().secs() << " after doing work of " << task.execTime << endl;
       } 
       else // now we know that the task is lost or killed
       {
@@ -288,8 +295,31 @@ private:
   TaskGenerator& generator;
   string uri;
   list<Task> tasksInFlight;
-  
+
   Stopwatch life;
+
+  void set_guaranteed_share(SchedulerDriver* driver)
+  {
+    vector<Request> requests;
+    Request guaranteed_share;
+
+    Resource* resource;
+
+    resource = guaranteed_share.add_resources();
+    resource->set_name("cpus");
+    resource->set_type(Value::SCALAR);
+    resource->mutable_scalar()->set_value(CPUS_PER_TASK*2);
+
+    resource = guaranteed_share.add_resources();
+    resource->set_name("mem");
+    resource->set_type(Value::SCALAR);
+    resource->mutable_scalar()->set_value(MEM_PER_TASK*2);
+
+    requests.push_back(guaranteed_share);
+    driver->requestResources(requests);
+
+    cout << "Sent Guaranteed Share Request." << endl;
+  }
 };
 
 int main(int argc, char** argv)
@@ -301,9 +331,9 @@ int main(int argc, char** argv)
 
   // Find this executable's directory to locate executor.
   string path = os::realpath(dirname(argv[0])).get();
-  string uri = path + "/forever-executor";
+  string uri = path + "/timed-executor";
   if (getenv("MESOS_BUILD_DIR")) {
-    uri = string(getenv("MESOS_BUILD_DIR")) + "/src/forever-executor";
+    uri = string(getenv("MESOS_BUILD_DIR")) + "/src/timed-executor";
   }
 
   ExecutorInfo executor;

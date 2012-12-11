@@ -25,19 +25,72 @@
 #include <boost/lexical_cast.hpp>
 using boost::lexical_cast;
 
+#include <stout/hashmap.hpp>
+
+#include "common/lock.hpp"
+
 #include <tr1/functional>
 
 #include <mesos/executor.hpp>
 
 using namespace mesos;
+using namespace mesos::internal;
 
 using std::cout;
 using std::endl;
 using std::string;
 
+enum signal {
+  running, dead
+};
+
+class SignalHolder
+{
+public:
+  SignalHolder()
+    {
+      pthread_mutexattr_t attr;
+      pthread_mutexattr_init(&attr);
+      pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE);
+      pthread_mutex_init(&signalMutex, &attr);
+      pthread_mutexattr_destroy(&attr);
+    }
+
+  ~SignalHolder()
+  {
+    pthread_mutex_destroy(&signalMutex);
+  }
+
+  void setSignal(string key, signal value = running)
+  {
+    Lock lock(&signalMutex);
+    signals[key] = value;
+  }
+
+  void clearSignal(string key)
+  {
+    Lock lock(&signalMutex);
+    signals.erase(key);
+  }
+
+  signal checkSignal(string key)
+  {
+    Lock lock(&signalMutex);
+    if(signals.contains(key)) return signals[key];
+    else return dead;
+  }
+
+private:
+  pthread_mutex_t signalMutex;
+  hashmap<string, signal> signals;
+};
+
+static SignalHolder scoreboard;
 
 void run(ExecutorDriver* driver, const TaskInfo& task)
 {
+  TaskID taskId = task.task_id();
+
   int execTime = 10;
   if(task.has_data())
   {
@@ -45,13 +98,26 @@ void run(ExecutorDriver* driver, const TaskInfo& task)
     catch( boost::bad_lexical_cast const&)
       {cout << "Malformed Task data: " << task.data() << endl;}
   }
-  cout << "Running task for " << execTime << " secs." << endl;
-  //sleep(6 + (random() % 10));
-  sleep(execTime);
+
+  cout << "Running task " << taskId.value() << " for " << execTime << " secs." << endl;
+  for(int time = 0; time < execTime; time++)
+  {
+    sleep(1);
+    if(scoreboard.checkSignal(taskId.value()) != running)
+    {
+      cout << "Killed task " << taskId.value() << " after " << time << " secs." << endl;
+      scoreboard.clearSignal(taskId.value());
+      return;
+    }
+  }
+
+  scoreboard.clearSignal(taskId.value());
 
   TaskStatus status;
-  status.mutable_task_id()->MergeFrom(task.task_id());
+  status.mutable_task_id()->MergeFrom(taskId);
   status.set_state(TASK_FINISHED);
+
+  cout << "Completed task " << taskId.value() << endl;
 
   driver->sendStatusUpdate(status);
 }
@@ -94,6 +160,8 @@ public:
     std::tr1::function<void(void)>* thunk =
       new std::tr1::function<void(void)>(std::tr1::bind(&run, driver, task));
 
+    scoreboard.setSignal(task.task_id().value(), running);
+
     pthread_t pthread;
     if (pthread_create(&pthread, NULL, &start, thunk) != 0) {
       TaskStatus status;
@@ -112,7 +180,11 @@ public:
     }
   }
 
-  virtual void killTask(ExecutorDriver* driver, const TaskID& taskId) {}
+  virtual void killTask(ExecutorDriver* driver, const TaskID& taskId)
+  {
+    cout << "Received kill command for task " << taskId.value() << endl;
+    scoreboard.clearSignal(taskId.value());
+  }
   virtual void frameworkMessage(ExecutorDriver* driver, const string& data) {}
   virtual void shutdown(ExecutorDriver* driver) {}
   virtual void error(ExecutorDriver* driver, const string& message) {}
